@@ -1,0 +1,45 @@
+import "tfconfig"
+import "strings"
+
+# Get modules that have VPCs
+get_module_paths_with_vpcs = func() {
+  modules_with_vpcs = []
+  for tfconfig.module_paths as path {
+    #print("Current path:", path)
+    if (length(values(tfconfig.module(path).resources.aws_vpc)) else 0) > 0 {
+      print("Current addition:", path)
+      # Add the path as a list to the modules_with_vpcs list
+      # to make sure we capture root module if it has VPCs
+      # since adding empty list to list does not add anything.
+      # Another option would be to add a map like {"module": path}
+      append(modules_with_vpcs, [path])
+    }
+  }
+  print("Modules with VPCs", modules_with_vpcs)
+  return modules_with_vpcs
+}
+
+# Call the function
+module_paths_with_vpcs = get_module_paths_with_vpcs()
+
+# Rule that requires VPCs to be in modules from Private Module Registry
+vpcs_in_modules_from_pmr = rule {
+  all module_paths_with_vpcs as path_list {
+    all path_list as path {
+      # root module will be empty list and will not have source attribute
+      # Note that this does not work for nested modules more than 1 layer down
+      # This would have worked, but strings.join() does not seem supported in TFE
+      # even though it works with Sentinel Simulator and is documented
+      # at https://docs.hashicorp.com/sentinel/imports/strings#strings-join-a-sep-
+      #print("module source: ", strings.join(["tfconfig.modules", strings.join(path, "."), "source"], "."))
+      print("module path: ", path[length(path)-1] else "root") and
+      print("module source: ", tfconfig.modules[path[0]].source else "none") and
+      (length(path) == 0 or
+      strings.has_prefix(tfconfig.modules[path[0]].source, "app.terraform.io/aworkman"))
+    }
+  }
+}
+
+main = rule {
+  (vpcs_in_modules_from_pmr) else true
+}
